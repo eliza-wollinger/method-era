@@ -4,4 +4,4 @@ Modal estimation deals with the problem of identifying parameters of structures 
 
 ## ⚙️ Tools:
 
-- 🐍 Python (with Numpy)
+- 🐍 Python and packages
