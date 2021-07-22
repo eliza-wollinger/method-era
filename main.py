@@ -1,60 +1,67 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import json
+from math import e
 
 data = json.load(open('data.json'))
 
-mass_data = data['mass']
-damp_data = data['damp']
-stif_data = data['stif']
+m = data['m']
+k = data['k']
+c = data['c']
 
-mass_matrix = np.array([
-                        [mass_data[0],     0       ,     0       ,     0       ,     0       ],
-                        [    0       , mass_data[1],     0       ,     0       ,     0       ],
-                        [    0       ,     0       , mass_data[2],     0       ,     0       ],
-                        [    0       ,     0       ,     0       , mass_data[3],     0       ],
-                        [    0       ,     0       ,     0       ,     0       , mass_data[4]]
-                        ])
 
-damp_matrix = np.array([
-                        [damp_data[0]+damp_data[1],        -damp_data[1]     ,             0            ,             0            ,      0       ],
-                        [       -damp_data[1]     , damp_data[1]+damp_data[2],        -damp_data[2]     ,             0            ,      0       ],
-                        [            0            ,        -damp_data[2]     , damp_data[2]+damp_data[3],        -damp_data[3]     ,      0       ],
-                        [            0            ,             0            ,        -damp_data[3]     , damp_data[3]+damp_data[4], -damp_data[4]],
-                        [            0            ,             0            ,             0            ,        -damp_data[4]     ,  damp_data[4]]
-                        ])
+def create_matrix(arr):
+  size = len(arr)
+  lines = []
+  for line in range(size):
+    columns = []
+    for column in range (size):
+      current_num = arr[column]
+      if line == column:
+        if line == 0:
+          columns.append(current_num + arr[line+1])
+        else:
+          columns.append(current_num + arr[line-1])
+      elif column == line + 1:
+        columns.append(-current_num)
+      elif column == line - 1:
+        columns.append(-arr[line - 1])
+      else:
+        columns.append(0)
+    lines.append(columns)
+  return lines
 
-stif_matrix = np.array([
-                        [stif_data[0]+stif_data[1],        -stif_data[1]     ,             0            ,             0            ,      0       ],
-                        [       -stif_data[1]     , stif_data[1]+stif_data[2],        -stif_data[2]     ,             0            ,      0       ],
-                        [            0            ,        -stif_data[2]     , stif_data[2]+stif_data[3],        -stif_data[3]     ,      0       ],
-                        [            0            ,             0            ,        -stif_data[3]     , stif_data[3]+stif_data[4], -stif_data[4]],
-                        [            0            ,             0            ,             0            ,        -stif_data[4]     ,  stif_data[4]]
-                        ])
+
+m_matrix = np.diag(m)
+k_matrix = np.array(create_matrix(k))
+c_matrix = np.array(create_matrix(c))
 
 zero_matrix         = np.zeros((5, 5))
 identify_matrix     = np.eye(5)
-inverse_mass_matrix = np.linalg.inv(mass_matrix)
+inverse_m_matrix    = np.linalg.inv(m_matrix)
 
 A = np.block([
-              [       zero_matrix              ,          identify_matrix        ],
-              [-inverse_mass_matrix@stif_matrix, -inverse_mass_matrix@damp_matrix]
-              ])
+             [       zero_matrix        ,       identify_matrix     ],
+             [-inverse_m_matrix@k_matrix, -inverse_m_matrix@c_matrix]
+             ])
 
 eigvals, eigvecs  = np.linalg.eig(A)
-negative_eigvals  = eigvals[10:0:-2].T
-eigvectors        = eigvecs[0:5, 10:0:-2].T
+lambd             = eigvals[10:0:-2]
+fi                = eigvecs[0:5, 10:0:-2]
 
-eigvalscut_square = np.abs(negative_eigvals) / (2*np.pi)
-sort              = np.argsort(eigvalscut_square)
+# To make the comparison with the MATLAB program will be using the column view 
+# in fi and lambd, but for all accounts, consider the transposed matrix.
 
-eigvecs_imag_norm = np.array([eigvectors.imag[i] / eigvectors.imag[i,0] for i in range(5)])
-eigvecs_real_norm = np.array([eigvectors.real[i] / eigvectors.real[i,0] for i in range(5)])
+fnhertz = np.abs(lambd) / (2*np.pi)
+sort    = np.argsort(fnhertz)
+
+eigvecs_imag_norm = np.array([fi.T.imag[i] / fi.T.imag[i,0] for i in range(5)])
+eigvecs_real_norm = np.array([fi.T.real[i] / fi.T.real[i,0] for i in range(5)])
 
 mode_shape_imag = np.block([np.zeros((5,1)), eigvecs_imag_norm])
 mode_shape_real = np.block([np.zeros((5,1)), eigvecs_real_norm])
 
-np.set_printoptions(precision = 4, suppress = True)
+np.set_printoptions(precision=4, suppress=True)
 
 mode_shape_imag_plot = [[
                         plt.subplot(511+i), plt.axhline(color = 'darkgray'),\
@@ -74,35 +81,31 @@ mode_shape_real_plot = [[
                         ]
 plt.show()
 
+# Residue Calculation
+
+frequency_size = 5
+
+def get_residues():
+  residue_array = []
+  for i in range(frequency_size):
+    residue = []
+    for j in range(frequency_size):
+      residue.append(np.array(fi[i,j] * fi[0,j]))
+    residue_array.append(residue)
+  return residue_array
+
+
 # IRF Simulation
 
-noise_amplitude = float(input("Noise amplitude = "))
-delta_t         = 0.04
-Npt             = 10
-t               = np.array(np.arange(0, Npt, 1)*delta_t)
+time = 500
 
+def get_natural_frequency():
+  residues = get_residues()
+  impulse_array = []
+  for i in range(time):
+    for j in range(frequency_size):
+      impulse_array.append(np.array([[2]*np.array(residues[j]) * e**(lambd * i)]))
+    return impulse_array
 
-r               = np.array([
-                            eigvectors[i, j] * eigvectors[i, 0]
-                            for i in range(5)
-                            for j in range(5)
-                            ])
-
-#h               = np.array([
-#                            2*np.real(r[j]@np.exp(eigvectors*t[i])) + np.random.uniform(-noise_amplitude, noise_amplitude)
-#                            for i in range(Npt)
-#                            for j in range(5)
-#                            ])
-
-
-#print("Mass Matrix = \n", mass_matrix)
-#print("\n Damping Matrix = \n", damp_matrix)
-#print("\n Stiffness Matrix = \n", stif_matrix)
-#print("\n Matrix A = \n", A)
-#print("\n eigenvalues = \n", eigvals)
-#print("\n eigenvectors = \n", eigvecs)
-print("\n r = \n", r)
-#print("\n negative aigenvalues = \n", negative_eigvals)
-
-#wn_ST = np.abs(eigvalscut)
-#qsi   = -np.real(negative_eigvals) / np.abs(negative_eigvals)
+natural_frequencies = get_natural_frequency()
+print(natural_frequencies)
