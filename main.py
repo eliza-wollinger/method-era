@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import json
-from math import e
+
+np.set_printoptions(precision=7, suppress=True)
 
 data = json.load(open('data.json'))
 
@@ -10,31 +10,19 @@ k = data['k']
 c = data['c']
 
 
-def create_matrix(arr):
-  size = len(arr)
-  lines = []
-  for line in range(size):
-    columns = []
-    for column in range (size):
-      current_num = arr[column]
-      if line == column:
-        if line == 0:
-          columns.append(current_num + arr[line+1])
-        else:
-          columns.append(current_num + arr[line-1])
-      elif column == line + 1:
-        columns.append(-current_num)
-      elif column == line - 1:
-        columns.append(-arr[line - 1])
-      else:
-        columns.append(0)
-    lines.append(columns)
-  return lines
-
-
 m_matrix = np.diag(m)
-k_matrix = np.array(create_matrix(k))
-c_matrix = np.array(create_matrix(c))
+k_matrix = np.array([[k[0]+k[1],   -k[1]  ,     0    ,     0    ,   0  ],
+                     [  -k[1]  , k[1]+k[2],   -k[2]  ,     0    ,   0  ],
+                     [    0    ,   -k[2]  , k[2]+k[3],   -k[3]  ,   0  ],
+                     [    0    ,     0    ,   -k[3]  , k[3]+k[4], -k[4]],
+                     [    0    ,     0    ,     0    ,   -k[4]  ,  k[4]]
+                     ])
+c_matrix = np.array([[c[0]+c[1],   -c[1]  ,     0    ,     0    ,   0  ],
+                     [  -c[1]  , c[1]+c[2],   -c[2]  ,     0    ,   0  ],
+                     [    0    ,   -c[2]  , c[2]+c[3],   -c[3]  ,   0  ],
+                     [    0    ,     0    ,   -c[3]  , c[3]+c[4], -c[4]],
+                     [    0    ,     0    ,     0    ,   -c[4]  ,  c[4]]
+                     ])
 
 zero_matrix         = np.zeros((5, 5))
 identify_matrix     = np.eye(5)
@@ -46,22 +34,18 @@ A = np.block([
              ])
 
 eigvals, eigvecs  = np.linalg.eig(A)
-lambd             = eigvals[10:0:-2]
-fi                = eigvecs[0:5, 10:0:-2]
+eigval             = eigvals[10:0:-2].T
+eigvec                = eigvecs[0:5, 10:0:-2].T
 
-# To make the comparison with the MATLAB program will be using the column view 
-# in fi and lambd, but for all accounts, consider the transposed matrix.
 
-fnhertz = np.abs(lambd) / (2*np.pi)
+fnhertz = np.abs(eigval) / (2*np.pi)
 sort    = np.argsort(fnhertz)
 
-eigvecs_imag_norm = np.array([fi.T.imag[i] / fi.T.imag[i,0] for i in range(5)])
-eigvecs_real_norm = np.array([fi.T.real[i] / fi.T.real[i,0] for i in range(5)])
+eigvecs_imag_norm = np.array([eigvec.T.imag[i] / eigvec.T.imag[i,0] for i in range(5)])
+eigvecs_real_norm = np.array([eigvec.T.real[i] / eigvec.T.real[i,0] for i in range(5)])
 
 mode_shape_imag = np.block([np.zeros((5,1)), eigvecs_imag_norm])
 mode_shape_real = np.block([np.zeros((5,1)), eigvecs_real_norm])
-
-np.set_printoptions(precision=4, suppress=True)
 
 mode_shape_imag_plot = [[
                         plt.subplot(511+i), plt.axhline(color = 'darkgray'),\
@@ -83,29 +67,40 @@ plt.show()
 
 # Residue Calculation
 
-frequency_size = 5
+size = 5
 
 def get_residues():
   residue_array = []
-  for i in range(frequency_size):
+  for i in range(size):
     residue = []
-    for j in range(frequency_size):
-      residue.append(np.array(fi[i,j] * fi[0,j]))
+    for j in range(size):
+      residue.append(np.array(eigvec.T[i][j] * eigvec.T[0][j]))
     residue_array.append(residue)
   return residue_array
 
 
 # IRF Simulation
 
-time = 500
+points = 10
+
+delta_time = 1/40
+
+def get_time():
+  time = []
+
+  for i in range(points):
+    time.append(i*delta_time)
+
+  return time
 
 def get_natural_frequency():
+  time = get_time()
   residues = get_residues()
-  impulse_array = []
-  for i in range(time):
-    for j in range(frequency_size):
-      impulse_array.append(np.array([[2]*np.array(residues[j]) * e**(lambd * i)]))
-    return impulse_array
 
-natural_frequencies = get_natural_frequency()
-print(natural_frequencies)
+  fris = np.zeros((size, points))
+  for i in range(size):
+    for j in range(points):
+      for k in range(size):
+        fris[i][j] = fris[i][j] + 2*np.real(np.array(residues[i][k])*np.exp(eigvec[i][k]*time[j]))
+  return fris
+
